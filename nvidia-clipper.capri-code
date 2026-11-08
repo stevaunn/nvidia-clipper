@@ -1,0 +1,128 @@
+// capri-mod: 1
+// id: nvidia-shadowplay-clipper
+// name: NVIDIA ShadowPlay Clipper
+// version: 1.2.0
+// author: Stevezin
+// description: Salva um clipe no NVIDIA Container ao dizer "Capri, clipa pra mim" ou "Capri, clipa para mim".
+
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Threading;
+using CapriDesktop;
+
+public class NvidiaClipperMod : ICapriMod
+{
+    private ICapriHost capri;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+    private const byte VK_MENU = 0x12; // Tecla Alt
+    private const byte VK_F10 = 0x79;  // Tecla F10 (Salvar Replay Instantaneo)
+    private const uint KEYEVENTF_KEYUP = 0x0002;
+
+    public void Start(ICapriHost host)
+    {
+        capri = host;
+        capri.Log("NVIDIA ShadowPlay Clipper iniciado.");
+    }
+
+    public bool Heard(string words)
+    {
+        if (string.IsNullOrEmpty(words))
+        {
+            return false;
+        }
+
+        // Padroniza para minusculas e ignora pontuacoes para funcionar tanto por voz quanto digitando
+        string line = words.ToLowerInvariant().Trim();
+        string cleanLine = line.Replace(",", "").Replace(".", "").Replace("!", "").Replace("?", "");
+
+        bool comandoExato = cleanLine.Contains("capri clipa pra mim") || 
+                            cleanLine.Contains("capri clipa para mim");
+
+        // Se nao for o comando de clipar, retorna false para a Capri conversar normalmente via IA
+        if (!comandoExato)
+        {
+            return false;
+        }
+
+        if (!IsNvidiaContainerRunning())
+        {
+            capri.Say("O NVIDIA Container nao esta rodando agora. Abre o NVIDIA App primeiro!");
+            return true;
+        }
+
+        capri.Sound("hop");
+        capri.Say("Ta na mao! Salvando o seu clipe na NVIDIA.");
+
+        Thread clipThread = new Thread(TriggerInstantReplay);
+        clipThread.IsBackground = true;
+        clipThread.Start();
+
+        return true;
+    }
+
+    public void Stop()
+    {
+        if (capri != null)
+        {
+            capri.Log("NVIDIA ShadowPlay Clipper encerrado.");
+        }
+    }
+
+    private bool IsNvidiaContainerRunning()
+    {
+        try
+        {
+            Process[] procs = Process.GetProcessesByName("nvcontainer");
+            if (procs != null && procs.Length != 0)
+            {
+                return true;
+            }
+
+            Process[] shareProcs = Process.GetProcessesByName("NVIDIA Share");
+            return (shareProcs != null && shareProcs.Length != 0);
+        }
+        catch (Exception ex)
+        {
+            if (capri != null)
+            {
+                capri.Log("Erro ao verificar processo da NVIDIA: " + ex.Message);
+            }
+            return false;
+        }
+    }
+
+    private void TriggerInstantReplay()
+    {
+        try
+        {
+            Thread.Sleep(150);
+
+            // Pressiona Alt + F10
+            keybd_event(VK_MENU, 0, 0, UIntPtr.Zero);
+            Thread.Sleep(50);
+            keybd_event(VK_F10, 0, 0, UIntPtr.Zero);
+            Thread.Sleep(100);
+
+            // Solta F10 + Alt
+            keybd_event(VK_F10, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            Thread.Sleep(50);
+            keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+
+            if (capri != null)
+            {
+                capri.Log("Atalho Alt+F10 enviado para o NVIDIA Container.");
+            }
+        }
+        catch (Exception ex)
+        {
+            if (capri != null)
+            {
+                capri.Log("Erro ao enviar atalho do clipe: " + ex.Message);
+            }
+        }
+    }
+}
